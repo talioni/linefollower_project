@@ -22,3 +22,5 @@ How to get it running:
 Connect the components as shown in the wiring diagram, upload the code to the Arduino Nano, and then connect it to power. Your wiring might differ.
 YOU MIGHT HAVE TO ADJUST THE VARIABLES.
 -> This is easy to do as all the constants are declared at the begining of the program. It's as simple as changing a number and reuploading the code to the arduino.
+
+You can check the demo on youtube via this link: https://youtu.be/GfSv7V7-erM
