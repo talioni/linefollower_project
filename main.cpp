@@ -1,0 +1,463 @@
+#include <Arduino.h>
+#include <Servo.h>
+#include <Adafruit_NeoPixel.h>
+#include <SoftwareSerial.h>
+
+// ==================== Config ====================
+
+#define Fin 0b10001111
+
+SoftwareSerial btSerial(2, 11); // HR=RX=2, HT=TX=11
+
+// --- Pins ---
+const int NEO_PIN     = 4;
+const int gripperPin  = 12;
+const int motorL_fwd  = 6;
+const int motorL_rev  = 5;
+const int motorR_fwd  = 9;
+const int motorR_rev  = 10;
+const int trigPin     = 7;
+const int echoPin     = 8;
+const int sensorPins[8] = {A0, A1, A2, A3, A4, A5, A6, A7};
+
+bool invertLeft  = false;
+bool invertRight = false;
+
+const int BLACK = 850;
+
+const int gripOpen  = 120;
+const int gripClose = 60;
+
+const int FLAG_MIN_CM = 3;
+const int FLAG_MAX_CM = 20;
+
+// --- Timings ---
+unsigned long startBlindMs       = 1500;
+unsigned long turnLeftMs         = 800;
+unsigned long afterTurnForwardMs = 600;
+
+unsigned long squareSince    = 0;
+unsigned long squareDetectMs = 80;  // how long it must stay black to count as the square
+
+// --- Speeds ---
+float startL      = 0.95, startR     = 1.00;
+float turnSpd     = 0.85;
+float afterTurnL  = 0.70, afterTurnR = 0.65;
+float backL       = 0.95, backR      = 1.00;
+
+float followCenterL    = 0.95, followCenterR    = 1.00;
+float followLeftTurnL  = 0.00, followLeftTurnR  = 1.00;  // full pivot left
+float followRightTurnL = 1.00, followRightTurnR = 0.00;  // full pivot right
+
+// --- Obstacle avoidance ---
+int obstacleCm = 5;
+
+// --- Drop ---
+unsigned long backupMs              = 3000;
+unsigned long releaseAfterReverseMs = 250;
+unsigned long dropHoldMs            = 450;
+unsigned long dropMinMs             = 2000;
+unsigned long nonBlackArmMs         = 200;
+int markerBlackCount = 5;
+int markerStableMs   = 200;
+
+const unsigned long SONAR_INTERVAL_MS = 300;
+const unsigned long GRIPPER_HZ_MS     = 80;
+
+// ==================== State Machine ====================
+
+enum LineState { LINE_NONE, LINE_LEFT, LINE_RIGHT, LINE_CENTER, LINE_T, LINE_END };
+
+enum State {
+  STARTUP,
+  WAIT_FLAG,
+  START_OPEN_GRIPPER,
+  START_FORWARD,
+  START_TURN_LEFT,
+  START_FORWARD_AFTER_TURN,
+  RUN_FOLLOW,
+  DROP_BACKUP_BEFORE_OPEN,
+  DROP_OPEN_WHILE_BACKING,
+  DROP_BACKUP_AFTER_OPEN,
+  DONE
+};
+
+State state = STARTUP;
+unsigned long stateStart = 0;
+
+// ==================== Runtime Vars ====================
+
+Servo gripper;
+Adafruit_NeoPixel pixels(4, NEO_PIN, NEO_GRB + NEO_KHZ800);
+uint32_t COL_WHITE, COL_BLUE, COL_GREEN, COL_YELLOW, COL_RED, COL_PURPLE;
+
+int sensorValues[8];
+int lastDistanceCm = 999;
+unsigned long lastSonarPingMs = 0;
+
+bool gripperHoldOpen = false;
+unsigned long lastGripCmd = 0;
+
+bool objectGrabbed = false;
+
+bool dropArmed = false;
+unsigned long runFollowStart = 0;
+unsigned long nonBlackSince  = 0;
+
+bool markerStable = false;
+unsigned long markerSince = 0;
+
+unsigned long dropReverseStart = 0;
+bool finishSent = false;
+
+int startupStep = 0;
+unsigned long startupTimer = 0;
+
+// ==================== LEDs ====================
+
+void ledsAll(uint32_t c) {
+  for (int i = 0; i < 4; i++) pixels.setPixelColor(i, c);
+  pixels.show();
+}
+
+void ledsLeftRight(uint32_t l, uint32_t r) {
+  pixels.setPixelColor(3, l); pixels.setPixelColor(0, l);
+  pixels.setPixelColor(1, r); pixels.setPixelColor(2, r);
+  pixels.show();
+}
+
+void setLedsForState(State s) {
+  switch (s) {
+    case START_FORWARD:
+    case START_FORWARD_AFTER_TURN:
+      ledsAll(COL_YELLOW); break;
+
+    case START_TURN_LEFT:
+      ledsAll(COL_GREEN); break;
+
+    case DROP_BACKUP_BEFORE_OPEN:
+    case DROP_OPEN_WHILE_BACKING:
+    case DROP_BACKUP_AFTER_OPEN:
+      ledsAll(COL_WHITE); break;
+
+    case STARTUP:
+    case WAIT_FLAG:
+    case START_OPEN_GRIPPER:
+    case DONE:
+    default:
+      ledsAll(COL_RED); break;
+  }
+}
+
+void setLedsForLine(LineState line) {
+  if      (line == LINE_LEFT)   ledsAll(COL_GREEN);   // turning
+  else if (line == LINE_RIGHT)  ledsAll(COL_GREEN);   // turning
+  else if (line == LINE_CENTER) ledsAll(COL_YELLOW);  // forward
+  else                          ledsAll(COL_RED);     // stopped
+}
+
+// ==================== Motors ====================
+
+void motorSet(int fwd, int rev, float speed, bool forward, bool invert) {
+  int pwm = constrain((int)(255.0f * speed), 0, 255);
+  if (invert) forward = !forward;
+  if (forward) { analogWrite(rev, 0); analogWrite(fwd, pwm); }
+  else         { analogWrite(fwd, 0); analogWrite(rev, pwm); }
+}
+
+void stopMotors() {
+  analogWrite(motorL_fwd, 0); analogWrite(motorL_rev, 0);
+  analogWrite(motorR_fwd, 0); analogWrite(motorR_rev, 0);
+}
+
+void driveForward(float l, float r) {
+  motorSet(motorL_fwd, motorL_rev, l, true,  invertLeft);
+  motorSet(motorR_fwd, motorR_rev, r, true,  invertRight);
+}
+
+void driveBackward(float l, float r) {
+  motorSet(motorL_fwd, motorL_rev, l, false, invertLeft);
+  motorSet(motorR_fwd, motorR_rev, r, false, invertRight);
+}
+
+void turnLeft(float spd) {
+  motorSet(motorL_fwd, motorL_rev, spd, false, invertLeft);
+  motorSet(motorR_fwd, motorR_rev, spd, true,  invertRight);
+}
+
+void pivotRight(float l, float r) {
+  motorSet(motorL_fwd, motorL_rev, l, true,  invertLeft);
+  motorSet(motorR_fwd, motorR_rev, r, false, invertRight);
+}
+
+void pivotLeft(float l, float r) {
+  motorSet(motorL_fwd, motorL_rev, l, true, invertLeft);
+  motorSet(motorR_fwd, motorR_rev, r, true, invertRight);
+}
+
+// ==================== Sonar ====================
+
+int readDistanceCm() {
+  if (state != RUN_FOLLOW && state != WAIT_FLAG) return 999;
+  unsigned long now = millis();
+  if (now - lastSonarPingMs < SONAR_INTERVAL_MS) return lastDistanceCm;
+  lastSonarPingMs = now;
+  digitalWrite(trigPin, LOW);  delayMicroseconds(2);
+  digitalWrite(trigPin, HIGH); delayMicroseconds(10);
+  digitalWrite(trigPin, LOW);
+  long us = pulseIn(echoPin, HIGH, 6000);
+  lastDistanceCm = (us == 0) ? 999 : (int)((us * 0.034f) / 2.0f);
+  return lastDistanceCm;
+}
+
+bool flagPresent() {
+  // Temporarily allow sonar read during WAIT_FLAG
+  digitalWrite(trigPin, LOW);  delayMicroseconds(2);
+  digitalWrite(trigPin, HIGH); delayMicroseconds(10);
+  digitalWrite(trigPin, LOW);
+  long us = pulseIn(echoPin, HIGH, 6000);
+  if (us == 0) return false;
+  int d = (int)((us * 0.034f) / 2.0f);
+  return (d >= FLAG_MIN_CM && d <= FLAG_MAX_CM);
+}
+
+// ==================== Line ====================
+
+LineState readLine() {
+  for (int i = 0; i < 8; i++) sensorValues[i] = analogRead(sensorPins[i]);
+  bool right  = sensorValues[0] > BLACK || sensorValues[1] > BLACK || sensorValues[2] > BLACK;
+  bool center = sensorValues[3] > BLACK || sensorValues[4] > BLACK;
+  bool left   = sensorValues[5] > BLACK || sensorValues[6] > BLACK || sensorValues[7] > BLACK;
+  if (left && center && right) return LINE_T;
+  if (!left && !center && !right) return LINE_END;
+  if (center) return LINE_CENTER;
+  if (left)   return LINE_LEFT;
+  if (right)  return LINE_RIGHT;
+  return LINE_NONE;
+}
+
+bool lineSeenNow() {
+  for (int i = 0; i < 8; i++) if (sensorValues[i] > BLACK) return true;
+  return false;
+}
+
+void handleLine(LineState line) {
+  if (line == LINE_LEFT) {
+    motorSet(motorL_fwd, motorL_rev, followLeftTurnL,  false, invertLeft);
+    motorSet(motorR_fwd, motorR_rev, followLeftTurnR,  true,  invertRight);
+  } else if (line == LINE_RIGHT) {
+    motorSet(motorL_fwd, motorL_rev, followRightTurnL, true,  invertLeft);
+    motorSet(motorR_fwd, motorR_rev, followRightTurnR, false, invertRight);
+  } else {
+    driveForward(followCenterL, followCenterR);
+  }
+}
+
+// ==================== Marker ====================
+
+void updateMarkerStable() {
+  unsigned long now = millis();
+  int blackCount = 0;
+  for (int i = 0; i < 8; i++) if (sensorValues[i] > BLACK) blackCount++;
+  if (blackCount >= markerBlackCount) {
+    if (markerSince == 0) markerSince = now;
+    markerStable = (now - markerSince >= (unsigned long)markerStableMs);
+  } else {
+    markerSince  = 0;
+    markerStable = false;
+  }
+}
+
+// ==================== Gripper ====================
+
+void gripperUpdate() {
+  unsigned long now = millis();
+  if (now - lastGripCmd < GRIPPER_HZ_MS) return;
+  lastGripCmd = now;
+  gripper.write(gripperHoldOpen ? gripOpen : gripClose);
+}
+
+// ==================== State Transitions ====================
+
+void enterState(State s) {
+  state      = s;
+  stateStart = millis();
+  switch (s) {
+    case START_OPEN_GRIPPER:
+      gripperHoldOpen = true;
+      gripper.write(gripOpen);
+      break;
+    case RUN_FOLLOW:
+      dropArmed       = false;
+      runFollowStart  = millis();
+      nonBlackSince   = 0;
+      gripperHoldOpen = !objectGrabbed;  // stay closed if already grabbed
+      break;
+    case DROP_BACKUP_BEFORE_OPEN:
+      dropReverseStart = millis();
+      gripperHoldOpen  = false;
+      break;
+    case DROP_OPEN_WHILE_BACKING:
+      gripperHoldOpen = true;
+      gripper.write(gripOpen);
+      break;
+    case DONE:
+      if (!finishSent) {
+        finishSent = true;
+        btSerial.write((uint8_t)Fin);
+        btSerial.write((uint8_t)Fin);
+
+      }
+      break;
+    default: break;
+  }
+  setLedsForState(s);
+}
+
+// ==================== Setup ====================
+
+void setup() {
+
+  Serial.begin(9600);
+  btSerial.begin(9600);
+
+  pixels.begin();
+  pixels.setBrightness(40);
+  COL_WHITE  = pixels.Color(245, 245, 245);
+  COL_BLUE   = pixels.Color(0,   0,   240);
+  COL_GREEN  = pixels.Color(0,   240, 0  );
+  COL_YELLOW = pixels.Color(245, 170, 0  );
+  COL_RED    = pixels.Color(245, 0,   0  );
+  COL_PURPLE = pixels.Color(160, 0,   245);
+  ledsAll(COL_WHITE);
+
+  pinMode(motorL_fwd, OUTPUT); pinMode(motorL_rev, OUTPUT);
+  pinMode(motorR_fwd, OUTPUT); pinMode(motorR_rev, OUTPUT);
+  pinMode(trigPin,    OUTPUT); pinMode(echoPin,    INPUT);
+  for (int i = 0; i < 8; i++) pinMode(sensorPins[i], INPUT);
+
+  gripper.attach(gripperPin);
+  stopMotors();
+
+  state        = STARTUP;
+  startupStep  = 0;
+  startupTimer = millis();
+  gripper.write(gripOpen);  // step 0: open
+}
+
+// ==================== Loop ====================
+
+void loop() {
+  unsigned long now = millis();
+
+  // ── STARTUP: open → wait → close → wait → go to WAIT_FLAG ────────────
+  if (state == STARTUP) {
+    if (startupStep == 0 && now - startupTimer > 600) {
+      gripper.write(gripClose);
+      startupTimer = now;
+      startupStep  = 1;
+    } else if (startupStep == 1 && now - startupTimer > 600) {
+      enterState(WAIT_FLAG);
+    }
+    return;
+  }
+
+  // ── WAIT_FLAG: wait until flag object is no longer detected ───────────
+  if (state == WAIT_FLAG) {
+    stopMotors();
+    ledsAll(COL_BLUE);
+    if (!flagPresent()) {
+      enterState(START_OPEN_GRIPPER);
+    }
+    return;
+  }
+
+  // ── START_OPEN_GRIPPER: open gripper, wait for it to open ─────────────
+  if (state == START_OPEN_GRIPPER) {
+    if (now - stateStart >= 400) {
+      enterState(START_FORWARD);
+    }
+    return;
+  }
+
+  // ── START_FORWARD: blind forward, snap to follow if line found ─────────
+  if (state == START_FORWARD) {
+    driveForward(startL, startR);
+    if (now - stateStart >= startBlindMs) {
+      stopMotors(); enterState(START_TURN_LEFT);
+    }
+    return;
+  }
+
+  // ── START_TURN_LEFT: blind pivot left ─────────────────────────────────
+  if (state == START_TURN_LEFT) {
+    // brief full power kick to break static friction
+    if (now - stateStart < 150) {
+      turnLeft(1.00);
+    } else {
+      turnLeft(turnSpd);
+    }
+    if (now - stateStart >= turnLeftMs) {
+      stopMotors(); enterState(RUN_FOLLOW);
+    }
+    return;
+  }
+
+  // ── START_FORWARD_AFTER_TURN: forward until line or timeout ───────────
+  if (state == START_FORWARD_AFTER_TURN) {
+    driveForward(afterTurnL, afterTurnR);
+    if (now - stateStart >= afterTurnForwardMs) {
+      stopMotors(); enterState(RUN_FOLLOW);
+    }
+    return;
+  }
+
+  // ── RUN_FOLLOW: line following + obstacle + drop detection ────────────
+  if (state == RUN_FOLLOW) {
+    LineState line = readLine();
+    handleLine(line);
+    setLedsForLine(line);
+    gripperUpdate();
+    updateMarkerStable();
+
+    int d = readDistanceCm();
+    if (!objectGrabbed && d <= obstacleCm) {
+      objectGrabbed   = true;
+      gripperHoldOpen = false;
+      gripper.write(gripClose);
+    }
+
+    if (!dropArmed && now - runFollowStart >= dropMinMs) {
+      if (!markerStable) {
+        if (nonBlackSince == 0) nonBlackSince = now;
+        if (now - nonBlackSince >= nonBlackArmMs) dropArmed = true;
+      } else { nonBlackSince = 0; }
+    }
+
+    if (dropArmed && markerStable) {
+      stopMotors(); enterState(DROP_BACKUP_BEFORE_OPEN);
+    }
+    return;
+  }
+
+  // ── DROP SEQUENCE ─────────────────────────────────────────────────────
+  if (state == DROP_BACKUP_BEFORE_OPEN) {
+    driveBackward(backL, backR);
+    if (now - dropReverseStart >= releaseAfterReverseMs) enterState(DROP_OPEN_WHILE_BACKING);
+    return;
+  }
+  if (state == DROP_OPEN_WHILE_BACKING) {
+    driveBackward(backL, backR);
+    if (now - dropReverseStart >= releaseAfterReverseMs + dropHoldMs) enterState(DROP_BACKUP_AFTER_OPEN);
+    return;
+  }
+  if (state == DROP_BACKUP_AFTER_OPEN) {
+    driveBackward(backL, backR);
+    if (now - dropReverseStart >= backupMs) { stopMotors(); enterState(DONE); }
+    return;
+  }
+  if (state == DONE) {
+    stopMotors();
+    return;
+  }
+}
