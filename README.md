@@ -2,7 +2,7 @@
 Arduino Nano robot that follows a black line, detects objects with an ultrasonic sensor, and uses a servo gripper to pick up and deliver them. Modular, easy-to-edit code for adapting to similar robots.
 
 What it does:
-In it's current state, the bot will perform a blind start (goes forward from a "parking lot" for a fixed amount of time, then turns left and looks for a black line). Once it finds it's line, it will begin following it, while it's LED's indicate the state its in (forward, pivots, stops, backing up). Along the course, if it finds an object, it will grab it and drag it along until the end. The end of the course is signaled by a black square. When the robot reaches the end, it will open the gripped, releasing the object on the black square, and then backing up safely.
+In it's current state, the bot will perform a blind start ( waits for a "flag" to be raised, goes forward from a "parking lot" for a fixed amount of time, then turns left and looks for a black line). Once it finds it's line, it will begin following it, while it's LED's indicate the state its in (forward, pivots, stops, backing up). Along the course, if it finds an object, it will grab it and drag it along until the end. The end of the course is signaled by a black square. When the robot reaches the end, it will open the gripped, releasing the object on the black square, and then backing up safely.
 
 Uses:
 Arduino Nano
