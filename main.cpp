@@ -7,15 +7,22 @@
 
 #define Fin 0b10001111
 
+// This was going to be used to send information via bluetooth
+// but my Macbook couldn't connect to the bluetooth module
+
 SoftwareSerial btSerial(2, 11); // HR=RX=2, HT=TX=11
 
 // --- Pins ---
 const int NEO_PIN     = 4;
 const int gripperPin  = 12;
+
+// You might have to adjust
+// motor pins
 const int motorL_fwd  = 6;
 const int motorL_rev  = 5;
 const int motorR_fwd  = 9;
 const int motorR_rev  = 10;
+
 const int trigPin     = 7;
 const int echoPin     = 8;
 const int sensorPins[8] = {A0, A1, A2, A3, A4, A5, A6, A7};
@@ -23,11 +30,17 @@ const int sensorPins[8] = {A0, A1, A2, A3, A4, A5, A6, A7};
 bool invertLeft  = false;
 bool invertRight = false;
 
+// This is for the reflectance sensors,
+// if they're not detecting the line,
+// change this value
 const int BLACK = 850;
 
+// You might have to adjust these
 const int gripOpen  = 120;
 const int gripClose = 60;
 
+// If you're planning on using a start flag
+// you can adjust the distance here
 const int FLAG_MIN_CM = 3;
 const int FLAG_MAX_CM = 20;
 
@@ -40,7 +53,8 @@ unsigned long squareSince    = 0;
 unsigned long squareDetectMs = 80;  // how long it must stay black to count as the square
 
 // --- Speeds ---
-float startL      = 0.95, startR     = 1.00;
+float startL      = 0.95, startR     = 1.00;  // One motor can perform differently to another
+                                              // Try finding values that ensure equal RPM on both wheels
 float turnSpd     = 0.85;
 float afterTurnL  = 0.70, afterTurnR = 0.65;
 float backL       = 0.95, backR      = 1.00;
@@ -49,7 +63,8 @@ float followCenterL    = 0.95, followCenterR    = 1.00;
 float followLeftTurnL  = 0.00, followLeftTurnR  = 1.00;  // full pivot left
 float followRightTurnL = 1.00, followRightTurnR = 0.00;  // full pivot right
 
-// --- Obstacle avoidance ---
+// How far does the object need to be for the gripper to close
+// You might have to change this
 int obstacleCm = 5;
 
 // --- Drop ---
