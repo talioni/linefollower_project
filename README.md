@@ -24,10 +24,11 @@ YOU MIGHT HAVE TO ADJUST THE VARIABLES.
 -> This is easy to do as all the constants are declared at the begining of the program. It's as simple as changing a number and reuploading the code to the arduino.
 
 I/O List:
+
 <img width="364" height="734" alt="IO List" src="https://github.com/user-attachments/assets/858db4d8-c9c4-4cd4-937b-613d0770b5d9" />
 
 System architecture:
-<img width="2088" height="1070" alt="image" src="https://github.com/user-attachments/assets/bbf6f195-1880-45ae-b3b5-0ab7e4fdd8da" />
+<img width="1554" height="691" alt="image" src="https://github.com/user-attachments/assets/e398f83a-bc9f-4bf0-8f8d-33d7b41e3efe" />
 
 
 You can check the demo on youtube via this link: https://youtu.be/GfSv7V7-erM
