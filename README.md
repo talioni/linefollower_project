@@ -28,7 +28,9 @@ I/O List:
 <img width="364" height="734" alt="IO List" src="https://github.com/user-attachments/assets/858db4d8-c9c4-4cd4-937b-613d0770b5d9" />
 
 System architecture:
-<img width="1554" height="691" alt="image" src="https://github.com/user-attachments/assets/e398f83a-bc9f-4bf0-8f8d-33d7b41e3efe" />
+<img width="1920" height="1080" alt="Relaybot body" src="https://github.com/user-attachments/assets/ecee1f0c-ba6e-497b-adf3-817160cc7c57" />
 
 
 You can check the demo on youtube via this link: https://youtu.be/GfSv7V7-erM
+
+All of the hardware was provided by NHL Stenden University of Applied Sciences.
