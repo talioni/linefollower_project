@@ -1,36 +1,84 @@
 # linefollower_project
-Arduino Nano robot that follows a black line, detects objects with an ultrasonic sensor, and uses a servo gripper to pick up and deliver them. Modular, easy-to-edit code for adapting to similar robots.
 
-What it does:
-In its current state, the bot will perform a blind start ( waits for a "flag" to be raised, goes forward from a "parking lot" for a fixed amount of time, then turns left and looks for a black line). Once it finds its line, it will begin following it, while its LED's indicate the state its in (forward, pivots, stops, backing up). Along the course, if it finds an object, it will grab it and drag it along until the end. The end of the course is signaled by a black square. When the robot reaches the end, it will open the gripped, releasing the object on the black square, and then backing up safely.
+Arduino Nano robot that follows a black line, detects objects using an ultrasonic sensor, and uses a servo gripper to pick up and deliver them. The code is modular and easy to adapt for similar robotics projects.
 
-Uses:
-Arduino Nano, 
-Servo-controlled gripper, 
-8 reflectance sensors, 
-Ultrasonic sensor, 
-Motors, 
-Chasis/wheels (of course).
+## Overview
 
-Software requirements (Libraries):
-#include <Arduino.h>, 
-#include <Servo.h>, 
-#include <Adafruit_NeoPixel.h>, 
-#include <SoftwareSerial.h>, 
+The robot performs a predefined startup sequence before transitioning into autonomous line-following behavior.
 
-How to get it running:
-Connect the components as shown in the wiring diagram, upload the code to the Arduino Nano, and then connect it to power. Your wiring might differ.
-YOU MIGHT HAVE TO ADJUST THE VARIABLES.
--> This is easy to do as all the constants are declared at the begining of the program. It's as simple as changing a number and reuploading the code to the arduino.
+### Behavior
 
-I/O List:
+* Starts with a blind sequence:
 
-<img width="364" height="734" alt="IO List" src="https://github.com/user-attachments/assets/858db4d8-c9c4-4cd4-937b-613d0770b5d9" />
+  * Waits for a start signal ("flag")
+  * Moves forward from a starting area for a fixed duration
+  * Turns left to begin searching for a line
 
-System architecture:
-<img width="1920" height="1080" alt="Relaybot body" src="https://github.com/user-attachments/assets/ecee1f0c-ba6e-497b-adf3-817160cc7c57" />
+* Once the line is detected:
 
+  * Follows the black line using reflectance sensors
+  * Uses LEDs to indicate current state (forward, pivoting, stopping, reversing)
 
-You can check the demo on youtube via this link: https://youtu.be/GfSv7V7-erM
+* Object interaction:
 
-All of the hardware was provided by NHL Stenden University of Applied Sciences.
+  * Detects objects using an ultrasonic sensor
+  * Grabs the object with a servo gripper
+  * Drags the object along the course
+
+* End condition:
+
+  * A black square indicates the end of the course
+  * Robot releases the object onto the square
+  * Moves backward to a safe position
+
+## Hardware Components
+
+* Arduino Nano
+* Servo-controlled gripper
+* 8 reflectance sensors
+* Ultrasonic sensor
+* Motors
+* Chassis and wheels
+
+## Software Requirements
+
+Required libraries:
+
+```cpp id="lib1"
+#include <Arduino.h>
+#include <Servo.h>
+#include <Adafruit_NeoPixel.h>
+#include <SoftwareSerial.h>
+```
+
+## Setup Instructions
+
+1. Connect all components according to the wiring diagram
+2. Upload the code to the Arduino Nano
+3. Connect the robot to a power source
+
+Note: Wiring may vary depending on your setup.
+
+## Configuration
+
+You may need to adjust variables for your specific hardware.
+
+* All constants are defined at the beginning of the program
+* Modify values as needed and re-upload the code
+
+## I/O List
+
+<img width="364" height="734" alt="565903254-858db4d8-c9c4-4cd4-937b-613d0770b5d9" src="https://github.com/user-attachments/assets/c3e806be-5ca6-4f38-a566-f1de7fa2f31d" />
+
+## System Architecture
+
+<img width="1920" height="1080" alt="566188696-ecee1f0c-ba6e-497b-adf3-817160cc7c57" src="https://github.com/user-attachments/assets/3af2517a-cf83-476a-8db5-fb2319e0d93a" />
+
+## Demo
+
+You can view a demonstration of the robot here:
+https://youtu.be/GfSv7V7-erM
+
+## Acknowledgements
+
+All hardware was provided by NHL Stenden University of Applied Sciences.
